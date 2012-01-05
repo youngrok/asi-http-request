@@ -1944,8 +1944,8 @@ static NSOperationQueue *sharedQueue = nil;
 		return;
 	}
 
-	if([[self delegate] respondsToSelector:@selector(requestRedirected:)]){
-		[[self delegate] performSelector:@selector(requestRedirected:) withObject:self];
+	if([delegate respondsToSelector:@selector(requestRedirected:)]){
+		[delegate performSelector:@selector(requestRedirected:) withObject:self];
 	}
 
 	#if NS_BLOCKS_AVAILABLE
