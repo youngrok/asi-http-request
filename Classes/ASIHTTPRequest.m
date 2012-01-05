@@ -24,7 +24,7 @@
 #import "ASIDataCompressor.h"
 
 // Automatically set on build
-NSString *ASIHTTPRequestVersion = @"v1.8.1-61 2011-09-19";
+NSString *ASIHTTPRequestVersion = @"v1.8.1-72 2011-11-30";
 
 static NSString *defaultUserAgent = nil;
 
@@ -140,6 +140,7 @@ static NSOperationQueue *sharedQueue = nil;
 // Private stuff
 @interface ASIHTTPRequest ()
 
+- (void)requestRedirected;
 - (void)cancelLoad;
 
 - (void)destroyReadStream;
@@ -459,6 +460,11 @@ static NSOperationQueue *sharedQueue = nil;
 		[blocks addObject:authenticationNeededBlock];
 		[authenticationNeededBlock release];
 		authenticationNeededBlock = nil;
+	}
+	if (requestRedirectedBlock) {
+		[blocks addObject:requestRedirectedBlock];
+		[requestRedirectedBlock release];
+		requestRedirectedBlock = nil;
 	}
 	[[self class] performSelectorOnMainThread:@selector(releaseBlocks:) withObject:blocks waitUntilDone:[NSThread isMainThread]];
 }
@@ -843,18 +849,20 @@ static NSOperationQueue *sharedQueue = nil;
 		
 		#if TARGET_OS_IPHONE && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_4_0
 		if ([ASIHTTPRequest isMultitaskingSupported] && [self shouldContinueWhenAppEntersBackground]) {
-			backgroundTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
-				// Synchronize the cleanup call on the main thread in case
-				// the task actually finishes at around the same time.
-				dispatch_async(dispatch_get_main_queue(), ^{
-					if (backgroundTask != UIBackgroundTaskInvalid)
-					{
-						[[UIApplication sharedApplication] endBackgroundTask:backgroundTask];
-						backgroundTask = UIBackgroundTaskInvalid;
-						[self cancel];
-					}
-				});
-			}];
+            if (!backgroundTask || backgroundTask == UIBackgroundTaskInvalid) {
+                backgroundTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
+                    // Synchronize the cleanup call on the main thread in case
+                    // the task actually finishes at around the same time.
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (backgroundTask != UIBackgroundTaskInvalid)
+                        {
+                            [[UIApplication sharedApplication] endBackgroundTask:backgroundTask];
+                            backgroundTask = UIBackgroundTaskInvalid;
+                            [self cancel];
+                        }
+                    });
+                }];
+            }
 		}
 		#endif
 
@@ -1214,6 +1222,7 @@ static NSOperationQueue *sharedQueue = nil;
             CFReadStreamSetProperty((CFReadStreamRef)[self readStream], 
                                     kCFStreamPropertySSLSettings, 
                                     (CFTypeRef)sslProperties);
+            [sslProperties release];
         } 
         
         // Tell CFNetwork to use a client certificate
@@ -1458,6 +1467,7 @@ static NSOperationQueue *sharedQueue = nil;
 	} else {
 		// Go all the way back to the beginning and build the request again, so that we can apply any new cookies
 		[self main];
+		[self performSelectorOnMainThread:@selector(requestRedirected) withObject:nil waitUntilDone:[NSThread isMainThread]];
 	}
 }
 
@@ -2305,8 +2315,6 @@ static NSOperationQueue *sharedQueue = nil;
 	if (responseCode != 301 && responseCode != 302 && responseCode != 303 && responseCode != 307) {
 		return NO;
 	}
-
-	[self performSelectorOnMainThread:@selector(requestRedirected) withObject:nil waitUntilDone:[NSThread isMainThread]];
 
 	// By default, we redirect 301 and 302 response codes as GET requests
 	// According to RFC 2616 this is wrong, but this is what most browsers do, so it's probably what you're expecting to happen
